@@ -2676,8 +2676,13 @@ def get_chrome_options():
     opts = Options()
     opts.add_argument('--headless=new')
     opts.add_argument('--no-sandbox')
+    opts.add_argument('--disable-setuid-sandbox')
     opts.add_argument('--disable-dev-shm-usage')
     opts.add_argument('--disable-gpu')
+    opts.add_argument('--disable-extensions')
+    opts.add_argument('--disable-background-networking')
+    opts.add_argument('--single-process')
+    opts.add_argument('--window-size=1920,1080')
     opts.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
     return opts
 
@@ -4413,11 +4418,11 @@ class SmartCodedewResolver:
                 return current_url
             
             # ✅ LOOP DETECTION
-            # ad_step URLs are allowed to repeat base
-            if 'ad_step' in current_url:
-                check_key = current_url  # Full URL with ad_step
-            else:
-                check_key = current_url.split('?')[0]  # Base URL only
+            # Always use full URL (including query params) as key.
+            # codedew.com/zipper/ is the same base path at every step but
+            # carries a completely different ?url= payload each time — stripping
+            # query params caused false loop detection on step 2.
+            check_key = current_url
             
             if check_key in visited:
                 print(f"\n   🔄 LOOP DETECTED at step {step}!")
