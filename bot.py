@@ -4744,14 +4744,7 @@ class Downloader:
                 print(f"\n   🔄 Scan attempt {quality_attempt + 1}/{max_quality_retries}")
                 
                 service = Service(ChromeDriverManager().install())
-                opts = Options()
-                opts.add_argument('--headless=new')
-                opts.add_argument('--no-sandbox')
-                opts.add_argument('--disable-dev-shm-usage')
-                opts.add_argument('--disable-gpu')
-                opts.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
-                
-                d = webdriver.Chrome(service=service, options=opts)
+                d = webdriver.Chrome(service=service, options=get_chrome_options())
                 d.set_page_load_timeout(60)
                 
                 cookie_file = os.path.join(self.dir, "cookies.txt")
