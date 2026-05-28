@@ -4724,7 +4724,6 @@ class Downloader:
 
     async def download(self, swift):
         """Download with CORRECT retry URL + skip downloaded qualities"""
-        d = None
         files = []
         downloaded_qualities = set()
         
@@ -4740,119 +4739,97 @@ class Downloader:
             max_quality_retries = 3
             wait_times = [5, 7, 9]
             
+            # Fixed user-agent used for both requests and aria2
+            user_agent = (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+            cookie_file = os.path.join(self.dir, "cookies.txt")
+
+            def _scan_html_for_quality_links(html, base_url, already_done):
+                """Parse HTML and return list of (quality, href) from <a> tags."""
+                soup = BeautifulSoup(html, 'html.parser')
+                results = []
+                for link in soup.find_all('a', href=True):
+                    href = link.get('href', '').strip()
+                    text = link.get_text(strip=True).lower()
+                    if not href or 'javascript' in href.lower():
+                        continue
+                    if 'rareanimes' in href or 'raretoonsindia' in href:
+                        continue
+                    full_href = urllib.parse.urljoin(base_url, href)
+                    check = text + ' ' + full_href.lower()
+                    quality = None
+                    if '1080' in check or 'fhd' in check:
+                        quality = '1080p'
+                    elif '720' in check:
+                        quality = '720p'
+                    elif '480' in check:
+                        quality = '480p'
+                    elif '360' in check:
+                        quality = '360p'
+                    if quality and quality not in already_done:
+                        if full_href not in [x[1] for x in results]:
+                            results.append((quality, full_href))
+                            print(f"      ✅ {quality}: {full_href[:50]}")
+                return results
+
             for quality_attempt in range(max_quality_retries):
                 print(f"\n   🔄 Scan attempt {quality_attempt + 1}/{max_quality_retries}")
-                
-                service = Service(ChromeDriverManager().install())
-                d = webdriver.Chrome(service=service, options=get_chrome_options())
-                d.set_page_load_timeout(60)
-                
-                cookie_file = os.path.join(self.dir, "cookies.txt")
                 found_links = []
                 
                 try:
-                    # ✅ FIX 2: ALWAYS open original URL (with full params)
-                    print(f"   🌐 Opening: {original_swift_url[:60]}...")
-                    d.get(original_swift_url)
-                    
-                    wait_time = wait_times[quality_attempt]
-                    print(f"   ⏳ Waiting {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                    
-                    main_window = d.current_window_handle
-                    self.popups(d, main_window)
-                    
-                    current_url = d.current_url
-                    print(f"   📍 Browser at: {current_url[:60]}...")
-                    
+                    print(f"   🌐 Fetching: {original_swift_url[:60]}...")
+                    sess = requests.Session()
+                    sess.headers.update({
+                        'User-Agent': user_agent,
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Referer': 'https://codedew.com/',
+                    })
+                    resp = sess.get(original_swift_url, timeout=30, verify=False)
+                    final_url = resp.url
+
                     # Skip wrong redirects
-                    if "rareanimes.app" in current_url or "raretoonsindia" in current_url:
-                        print(f"   ⚠️ Wrong redirect!")
-                        d.quit()
-                        d = None
+                    if 'rareanimes.app' in final_url or 'raretoonsindia' in final_url:
+                        print(f"   ⚠️ Wrong redirect to: {final_url[:60]}")
                         continue
-                    
-                    user_agent = d.execute_script("return navigator.userAgent")
-                    cookies = d.get_cookies()
-                    self.save_cookies_netscape(cookies, cookie_file)
-                    
+
+                    print(f"   📍 Landed at: {final_url[:60]}...")
+
+                    # Save cookies for aria2
+                    self.save_cookies_netscape(
+                        [{'name': c.name, 'value': c.value, 'domain': c.domain,
+                          'path': c.path, 'secure': c.secure, 'expiry': None}
+                         for c in sess.cookies],
+                        cookie_file
+                    )
+
                     # ==========================================
                     # SCAN MAIN PAGE
                     # ==========================================
-                    for link in d.find_elements(By.TAG_NAME, "a"):
+                    found_links = _scan_html_for_quality_links(
+                        resp.text, final_url, downloaded_qualities
+                    )
+
+                    # ==========================================
+                    # SCAN IFRAMES (fetch each src with requests)
+                    # ==========================================
+                    soup = BeautifulSoup(resp.text, 'html.parser')
+                    for iframe in soup.find_all('iframe', src=True):
+                        iframe_src = urllib.parse.urljoin(final_url, iframe['src'])
                         try:
-                            text = (link.text or "").strip().lower()
-                            href = link.get_attribute("href") or ""
-                            if not href or "javascript" in href.lower():
-                                continue
-                            if "rareanimes" in href or "raretoonsindia" in href:
-                                continue
-                            
-                            check = text + " " + href.lower()
-                            quality = None
-                            
-                            if "1080" in check or "fhd" in check:
-                                quality = "1080p"
-                            elif "720" in check:
-                                quality = "720p"
-                            elif "480" in check:
-                                quality = "480p"
-                            elif "360" in check:
-                                quality = "360p"
-                            
-                            # ✅ FIX 3: Skip already downloaded
-                            if quality and quality not in downloaded_qualities:
-                                if href not in [x[1] for x in found_links]:
-                                    found_links.append((quality, href))
-                                    print(f"      ✅ {quality}: {href[:50]}")
-                        except:
-                            pass
-                    
-                    # ==========================================
-                    # SCAN IFRAMES
-                    # ==========================================
-                    try:
-                        iframes = d.find_elements(By.TAG_NAME, "iframe")
-                        for i, iframe in enumerate(iframes):
-                            try:
-                                d.switch_to.frame(iframe)
-                                await asyncio.sleep(2)
-                                
-                                for link in d.find_elements(By.TAG_NAME, "a"):
-                                    try:
-                                        text = (link.text or "").strip().lower()
-                                        href = link.get_attribute("href") or ""
-                                        if not href or "javascript" in href.lower():
-                                            continue
-                                        
-                                        check = text + " " + href.lower()
-                                        quality = None
-                                        
-                                        if "1080" in check:
-                                            quality = "1080p"
-                                        elif "720" in check:
-                                            quality = "720p"
-                                        elif "480" in check:
-                                            quality = "480p"
-                                        elif "360" in check:
-                                            quality = "360p"
-                                        
-                                        # ✅ Skip already downloaded
-                                        if quality and quality not in downloaded_qualities:
-                                            if href not in [x[1] for x in found_links]:
-                                                found_links.append((quality, href))
-                                                print(f"      [Iframe] ✅ {quality}")
-                                    except:
-                                        pass
-                                
-                                d.switch_to.default_content()
-                            except:
-                                d.switch_to.default_content()
-                    except:
-                        pass
-                    
-                    d.quit()
-                    d = None
+                            iframe_resp = sess.get(iframe_src, timeout=20, verify=False)
+                            iframe_links = _scan_html_for_quality_links(
+                                iframe_resp.text, iframe_src, downloaded_qualities
+                            )
+                            for item in iframe_links:
+                                if item not in found_links:
+                                    found_links.append(item)
+                                    print(f"      [Iframe] ✅ {item[0]}")
+                        except Exception as e:
+                            print(f"      ⚠️ Iframe fetch error: {e}")
                     
                     # ==========================================
                     # DOWNLOAD FOUND QUALITIES
@@ -4924,12 +4901,6 @@ class Downloader:
                 except Exception as e:
                     print(f"   ❌ Attempt {quality_attempt + 1} error: {e}")
                     traceback.print_exc()
-                    if d:
-                        try:
-                            d.quit()
-                        except:
-                            pass
-                        d = None
             
             # Cleanup
             if os.path.exists(cookie_file):
@@ -4946,12 +4917,6 @@ class Downloader:
             print(f"[{self.task.task_id}] ❌ CRITICAL: {e}")
             traceback.print_exc()
             return files
-        finally:
-            if d:
-                try:
-                    d.quit()
-                except:
-                    pass
 
 # ==========================================
 # 📤 UPLOADER - COMPLETE CLASS (ALL FEATURES)
