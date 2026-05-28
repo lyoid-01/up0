@@ -89,7 +89,7 @@ WORKER_STUCK_TIME = 9000            # Seconds - Kill stuck workers (2.5 hours)
 # ==========================================
 # 📦 BACKUP SETTINGS
 # ==========================================
-BACKUP_CHANNEL = -1002932260531
+BACKUP_CHANNEL = -1003963366009
 # 7:00 AM IST = 1:30 AM UTC | 7:00 PM IST = 1:30 PM UTC
 BACKUP_TIMES = [
     {'hour': 1, 'minute': 30},    # 7:00 AM India Time
