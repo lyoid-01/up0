@@ -44,10 +44,10 @@ BOT_USERNAME = None
 # ==========================================
 # 🔐 BOT CREDENTIALS
 # ==========================================
-API_ID = api
-API_HASH = "hash"
-BOT_TOKEN = "token"
-OWNER_ID = ID
+API_ID = 22768311
+API_HASH = "702d8884f48b42e865425391432b3794"
+BOT_TOKEN = ""
+OWNER_ID = 6040503076
 
 # ==========================================
 # 📁 DIRECTORY PATHS
